@@ -297,6 +297,13 @@ export default function DashboardPage({
       y: height - (item[key] / maxRevenue) * (height - 18),
     }))
 
+  // Mostra poucos rotulos no eixo X (alinhados aos pontos) para nao amontoar.
+  const dayCount = daily.length
+  const labelStep = Math.max(1, Math.round((dayCount - 1) / 8))
+  const labelIndices: number[] = []
+  for (let i = 0; i < dayCount; i += labelStep) labelIndices.push(i)
+  if (dayCount > 0 && labelIndices[labelIndices.length - 1] !== dayCount - 1) labelIndices.push(dayCount - 1)
+
   const visibleSales = rows
     .filter((sale) => `${sale.id} ${sale.product} ${sale.channel}`.toLowerCase().includes(query.toLowerCase()))
     .slice(0, 6)
@@ -502,9 +509,16 @@ export default function DashboardPage({
             {hasProfit && <path className="profit-line" d={linePath(toPoints('profit'))} />}
           </svg>
           <div className="chart-labels">
-            {daily.map((item) => (
-              <span key={item.date}>{dateBR(item.date)}</span>
-            ))}
+            {labelIndices.map((index) => {
+              const item = daily[index]
+              const pctX = dayCount > 1 ? (index / (dayCount - 1)) * 100 : 50
+              const edge = index === 0 ? 'start' : index === dayCount - 1 ? 'end' : 'center'
+              return (
+                <span key={item.date} className={`x-${edge}`} style={{ left: `${pctX}%` }}>
+                  {dateBR(item.date)}
+                </span>
+              )
+            })}
           </div>
         </div>
         <div className="legend">
