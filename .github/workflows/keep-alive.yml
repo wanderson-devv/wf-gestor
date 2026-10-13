@@ -1,14 +1,15 @@
 name: Keep Render Alive
 
 # Mante o servico no Render (free tier) sempre acordado.
-# O Render dorme apos ~15 min sem trafego; um ping a cada 10 min
-# chega antes desse limite e evita o cold start de ~30-50s.
+# O Render dorme apos ~15 min sem trafego. Um ping a cada 5 min chega
+# bem antes desse limite e ainda absorve o atraso (jitter) best-effort
+# do cron do GitHub (que pode atrasar alguns minutos).
 # O scheduler precisa ser externo ao proprio servico (repo publico
 # => GitHub Actions sem custo).
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
