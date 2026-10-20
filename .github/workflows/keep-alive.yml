@@ -1,23 +1,50 @@
 name: Keep Render Alive
 
-# Mante o servico no Render (free tier) sempre acordado.
-# O Render dorme apos ~15 min sem trafego. Um ping a cada 5 min chega
-# bem antes desse limite e ainda absorve o atraso (jitter) best-effort
-# do cron do GitHub (que pode atrasar alguns minutos).
-# O scheduler precisa ser externo ao proprio servico (repo publico
-# => GitHub Actions sem custo).
+# TESTE de cadeia: 3 pings curtos + dispatch da proxima run.
+# Se a cadeia funcionar, o proximo run nasce sozinho (workflow_dispatch
+# via GITHUB_TOKEN e a unica excecao que o GitHub permite encadear).
 
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: keep-render-alive
+  cancel-in-progress: true
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Ping /health
+      - name: Ping /health (teste)
         run: |
-          curl -fsS --max-time 60 https://wf-gestor-api.onrender.com/health \
-            && echo " OK" \
-            || { echo " ping falhou"; exit 1; }
+          for i in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 https://wf-gestor-api.onrender.com/health || true)
+            echo "ping $i -> HTTP ${code:-000}"
+            [ "$i" -lt 3 ] && sleep 45
+          done
+      - name: Encadear proxima run
+        if: always()
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/keep-alive.yml/dispatches" \
+              -d '{"ref":"main"}' || true)
+            echo "dispatch tentativa $i -> HTTP ${code:-000}"
+            [ "${code:-000}" = "204" ] && exit 0
+            sleep 15
+          done
+          echo "dispatch falhou"
+          exit 1
