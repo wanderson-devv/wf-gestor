@@ -32,7 +32,13 @@ app.addHook('onRequest', async (request, reply) => {
   }
 })
 
-await app.register(cors, { origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(',') })
+// methods explicito: o default de @fastify/cors e 'GET,HEAD,POST' (sem PUT),
+// o que faz o navegador barrar o preflight dos PUT /db/* e o cliente reportar
+// "proxy indisponivel".
+await app.register(cors, {
+  origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(','),
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+})
 
 if (hasFront) {
   await app.register(fastifyStatic, { root: distDir, index: ['index.html'] })

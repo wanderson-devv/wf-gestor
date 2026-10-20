@@ -7,14 +7,23 @@ export const DEFAULT_PROXY_URL = 'https://wf-gestor-api.onrender.com'
 
 const normalize = (value: string) => value.trim().replace(/\/+$/, '')
 
+const isLocalHttp = (value: string) => /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(value)
+
 export function readProxyUrl(): string {
+  let candidate = ''
   try {
-    const stored = localStorage.getItem(STORE_KEY)
-    if (stored) return normalize(stored)
+    candidate = localStorage.getItem(STORE_KEY) ?? ''
   } catch {
     /* armazenamento indisponível */
   }
-  return normalize(ENV_URL) || DEFAULT_PROXY_URL
+  if (!candidate) candidate = ENV_URL
+  const value = normalize(candidate)
+  if (!value) return DEFAULT_PROXY_URL
+  // Pagina https (GitHub Pages) nao pode chamar http://localhost (mixed content):
+  // o fetch seria barrado pelo navegador e o save falharia como "proxy offline".
+  const onHttps = typeof location !== 'undefined' && location.protocol === 'https:'
+  if (onHttps && isLocalHttp(value)) return DEFAULT_PROXY_URL
+  return value
 }
 
 export function proxyHint(): string {
