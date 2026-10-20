@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "WF Gestor — visão da loja Amazon",
+  "short_name": "WF Gestor",
+  "lang": "pt-BR",
+  "description": "Painel da loja com pedidos, extrato financeiro, Ads e custos direto da Amazon SP-API.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#040705",
+  "theme_color": "#040705",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   LayoutDashboard,
   LineChart,
+  Menu,
   PackageSearch,
   Plug,
   Settings,
@@ -76,6 +77,7 @@ export default function App() {
   const sync = useAutoSyncStatus()
   useMinuteTick()
   const [panelOpen, setPanelOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [toasts, setToasts] = useState<LiveSale[]>([])
   const notified = useRef<Set<string>>(new Set())
   const panelRef = useRef<HTMLDivElement>(null)
@@ -171,8 +173,8 @@ export default function App() {
 
   return (
     <main className="shell">
-      <aside className="sidebar">
-        <a className="brand" href="#top" onClick={() => setView('Visão geral')}>
+      <aside className={menuOpen ? 'sidebar open' : 'sidebar'}>
+        <a className="brand" href="#top" onClick={() => { setView('Visão geral'); setMenuOpen(false) }}>
           <span>WF</span>
           <b>Gestor</b>
         </a>
@@ -187,7 +189,7 @@ export default function App() {
 
         <nav>
           {nav.map(({ label, icon: Icon }) => (
-            <button className={view === label ? 'active' : ''} key={label} onClick={() => setView(label)}>
+            <button className={view === label ? 'active' : ''} key={label} onClick={() => { setView(label); setMenuOpen(false) }}>
               <Icon size={18} />
               {label}
             </button>
@@ -195,7 +197,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className={view === 'Configurações' ? 'active' : ''} onClick={() => setView('Configurações')}>
+          <button className={view === 'Configurações' ? 'active' : ''} onClick={() => { setView('Configurações'); setMenuOpen(false) }}>
             <Settings size={18} />
             Configurações
           </button>
@@ -212,9 +214,19 @@ export default function App() {
 
       <section className="content" id="top">
         <header>
-          <span className="channel-picker">
-            <span className="all-channels">AM</span> Amazon.com.br
-          </span>
+          <div className="header-left">
+            <button
+              className="menu-toggle"
+              aria-label="Abrir menu de navegação"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <Menu size={19} />
+            </button>
+            <span className="channel-picker">
+              <span className="all-channels">AM</span> Amazon.com.br
+            </span>
+          </div>
           <div className="header-tools">
             <span className={`live-chip status-${live.status}`} title={live.message}>
               <i />
@@ -300,6 +312,7 @@ export default function App() {
         </div>
       </section>
 
+      {menuOpen && <div className="nav-scrim" onClick={() => setMenuOpen(false)} />}
       <LiveToast sales={toasts} onOpen={goVendas} onClose={closeToast} />
     </main>
   )
