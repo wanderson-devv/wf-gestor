@@ -14,6 +14,7 @@ export type FinanceOrder = {
   commission: number
   fees: number
   refunds: number
+  shipping?: number
 }
 
 export type FinanceAd = { date: string; amount: number }
@@ -286,6 +287,7 @@ export function enrichSales(
       sku,
       externalSku: hasSku ? sku : sale.externalSku,
       product: meta?.name ?? (temTitulo ? sale.product : hasSku ? sku : sale.product),
+      shipping: sale.shipping || info.shipping || 0,
       commission: info.commission,
       fees: info.fees,
       taxes,

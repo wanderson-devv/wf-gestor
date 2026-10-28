@@ -67,12 +67,28 @@ export default function FinancePage() {
   const semExtrato = rows.length - known.length
   const semCusto = known.filter((sale) => sale.costUnknown).length
   const faturamento = totals.gross
+  const freight = round(rows.reduce((sum, sale) => sum + (sale.shipping ?? 0), 0))
+  const freightOrders = rows.filter((sale) => (sale.shipping ?? 0) > 0).length
   const margem = (value: number) => (faturamento > 0 ? pct((value / faturamento) * 100) : pct(0))
   const ticket = totals.orders > 0 ? faturamento / totals.orders : 0
   const custoVenda = faturamento > 0 ? (totals.cost / faturamento) * 100 : 0
 
   const lines = [
-    { label: 'Faturamento bruto', value: faturamento, kind: 'total', note: `${totals.orders} pedidos nos últimos 30 dias` },
+    ...(freight > 0
+      ? [
+          { label: 'Faturamento de produtos', value: round(faturamento - freight), kind: 'total' },
+          {
+            label: '(+) Frete cobrado do comprador',
+            value: freight,
+            kind: 'addition',
+            note:
+              freightOrders < totals.orders
+                ? `frete identificado em ${freightOrders} de ${totals.orders} pedidos`
+                : undefined,
+          },
+        ]
+      : []),
+    { label: 'Faturamento bruto', value: faturamento, kind: 'sub', note: `${totals.orders} pedidos nos últimos 30 dias` },
     { label: '(-) Impostos sobre vendas', value: -totals.taxes, kind: 'deduction' },
     { label: '(-) Comissões e taxas de serviço', value: -totals.fees, kind: 'deduction' },
     { label: '(-) Devoluções e estornos', value: -totals.refunds, kind: 'deduction' },

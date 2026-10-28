@@ -210,6 +210,7 @@ export type FinanceOrder = {
   commission: number
   fees: number
   refunds: number
+  shipping: number
 }
 
 export type FinanceAd = { date: string; amount: number }
@@ -264,6 +265,7 @@ function applyCachedOrder(acc: FinanceAccumulator, orderId: string, cached: Fina
     target.commission += cached.entry.commission
     target.fees += cached.entry.fees
     target.refunds += cached.entry.refunds
+    target.shipping += cached.entry.shipping
   }
   for (const item of cached.skuTotals) {
     const current = acc.skuTotals.get(item.sku) ?? { units: 0, revenue: 0 }
@@ -310,7 +312,7 @@ function createAccumulator(): FinanceAccumulator {
 function entryOf(acc: FinanceAccumulator, orderId: string): FinanceOrder {
   const current = acc.orders.get(orderId)
   if (current) return current
-  const created: FinanceOrder = { skus: [], units: 0, taxes: 0, commission: 0, fees: 0, refunds: 0 }
+  const created: FinanceOrder = { skus: [], units: 0, taxes: 0, commission: 0, fees: 0, refunds: 0, shipping: 0 }
   acc.orders.set(orderId, created)
   return created
 }
@@ -333,6 +335,7 @@ function accumulateItem(acc: FinanceAccumulator, entry: FinanceOrder, item: Reco
     const type = String(charge.ChargeType ?? '')
     const value = money(charge.ChargeAmount)
     if (CHARGE_TAX.has(type)) entry.taxes += value
+    else if (type === 'ShippingCharge' && value > 0) entry.shipping += value
     else if (CHARGE_REVENUE.has(type) && value < 0) entry.refunds += value
   }
 
@@ -557,6 +560,7 @@ async function buildFinanceResult(since: string, key: string): Promise<FinanceRe
           commission: Math.round(Math.max(0, value.commission) * 100) / 100,
           fees: Math.round(Math.max(0, value.fees) * 100) / 100,
           refunds: Math.round(value.refunds * 100) / 100,
+          shipping: Math.round(value.shipping * 100) / 100,
         },
       ]),
     ),
@@ -642,6 +646,7 @@ export type DetailedItem = {
   asin?: string
   qty: number
   price: number
+  shipping?: number
 }
 
 export type DetailedOrder = {
@@ -652,6 +657,7 @@ export type DetailedOrder = {
   amount: number
   currency: string
   units: number
+  shipping: number
   items: DetailedItem[]
 }
 
@@ -677,6 +683,7 @@ async function readOrderItems(orderId: string): Promise<DetailedItem[] | null> {
         ASIN?: string
         QuantityOrdered?: number
         ItemPrice?: { Amount?: string }
+        ShippingPrice?: { Amount?: string }
       }[]
     }>
 
@@ -688,6 +695,7 @@ async function readOrderItems(orderId: string): Promise<DetailedItem[] | null> {
           ASIN?: string
           QuantityOrdered?: number
           ItemPrice?: { Amount?: string }
+          ShippingPrice?: { Amount?: string }
         }
         return {
           title: raw.Title,
@@ -695,6 +703,7 @@ async function readOrderItems(orderId: string): Promise<DetailedItem[] | null> {
           asin: raw.ASIN,
           qty: Number(raw.QuantityOrdered ?? 1) || 1,
           price: Number(raw.ItemPrice?.Amount ?? 0) || 0,
+          shipping: Number(raw.ShippingPrice?.Amount ?? 0) || 0,
         } satisfies DetailedItem
       },
     )
@@ -891,6 +900,7 @@ export async function fetchOrdersDetailed(since: string): Promise<DetailedResult
       amount: Number(order.OrderTotal?.Amount ?? 0),
       currency: order.OrderTotal?.CurrencyCode ?? 'BRL',
       units: (order.NumberOfItemsShipped ?? 0) + (order.NumberOfItemsUnshipped ?? 0),
+      shipping: 0,
       items: [] as DetailedItem[],
     }))
     .filter((order) => order.id && order.purchasedAt)
@@ -906,6 +916,10 @@ export async function fetchOrdersDetailed(since: string): Promise<DetailedResult
         order.items = items
         const qty = items.reduce((sum, item) => sum + item.qty, 0)
         if (qty > 0) order.units = qty
+        const itemTotal = items.reduce((sum, item) => sum + item.price, 0)
+        const declared = items.reduce((sum, item) => sum + (item.shipping ?? 0), 0)
+        const derived = itemTotal > 0 && itemTotal < order.amount ? order.amount - itemTotal : 0
+        order.shipping = Math.round((declared > 0 ? declared : derived) * 100) / 100
         enriched += 1
       }
       if (itemsUnavailable) break

@@ -28,6 +28,7 @@ export type Sale = {
   qty: number
   unitPrice: number
   gross: number
+  shipping?: number
   commission: number
   fees: number
   taxes: number

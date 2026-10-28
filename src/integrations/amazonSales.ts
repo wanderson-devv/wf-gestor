@@ -5,7 +5,7 @@ import { cacheGet, cacheSet } from './cache'
 
 const SALES_CACHE_MS = 10 * 60_000
 
-export type DetailedItem = { title?: string; sku?: string; asin?: string; qty: number; price: number }
+export type DetailedItem = { title?: string; sku?: string; asin?: string; qty: number; price: number; shipping?: number }
 
 export type DetailedOrder = {
   id: string
@@ -15,6 +15,7 @@ export type DetailedOrder = {
   amount: number
   currency: string
   units: number
+  shipping?: number
   items: DetailedItem[]
 }
 
@@ -57,6 +58,13 @@ export function mapDetailedOrder(order: DetailedOrder): Sale {
   const units = qty > 0 ? qty : 1
   const gross = Number(order.amount) || 0
 
+  const itemTotal = order.items.reduce((sum, item) => sum + (Number(item.price) || 0), 0)
+  const declared = order.items.reduce((sum, item) => sum + (Number(item.shipping) || 0), 0)
+  const shipping =
+    Number(order.shipping) ||
+    declared ||
+    (itemTotal > 0 && itemTotal < gross ? gross - itemTotal : 0)
+
   const extra = order.items.length > 1 ? ` (+${order.items.length - 1} itens)` : ''
 
   return {
@@ -70,6 +78,7 @@ export function mapDetailedOrder(order: DetailedOrder): Sale {
     qty: units,
     unitPrice: Math.round((gross / units) * 100) / 100,
     gross,
+    shipping: Math.round(shipping * 100) / 100,
     commission: 0,
     fees: 0,
     taxes: 0,
