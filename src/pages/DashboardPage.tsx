@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowDownRight,
   ArrowUpRight,
   Boxes,
-  CalendarDays,
-  ChevronDown,
   CircleHelp,
   Info,
   PackageSearch,
@@ -12,6 +10,7 @@ import {
 } from 'lucide-react'
 import { brl, brlShort, dateBR, num, pct, type Sale, type SaleStatus } from '../data'
 import { PageHeader, Panel, StatTile } from '../components/ui'
+import PeriodPicker, { DEFAULT_RANGE, fullBR, type Range } from '../components/PeriodPicker'
 import {
   ALL_ORDERS_SINCE,
   DEFAULT_PROXY_URL,
@@ -23,44 +22,6 @@ import {
   useAutoSyncStatus,
   type LiveFeed,
 } from '../integrations'
-
-const HOJE = new Date().toISOString().slice(0, 10)
-
-type Range = { start: string; end: string }
-
-const shiftDay = (base: string, days: number) => {
-  const date = new Date(`${base}T12:00:00`)
-  date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
-}
-
-const monthEnd = (base: string) => {
-  const [year, month] = base.split('-').map(Number)
-  const last = new Date(year, month, 0)
-  return `${year}-${String(month).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`
-}
-
-const prevMonth = (base: string) => {
-  const [year, month] = base.split('-').map(Number)
-  const date = new Date(year, month - 2, 1)
-  const start = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
-  const end = monthEnd(start)
-  return { start, end }
-}
-
-const buildPresets = (base: string): { label: string; range: Range }[] => [
-  { label: 'Últimos 3 dias', range: { start: shiftDay(base, -2), end: base } },
-  { label: 'Últimos 7 dias', range: { start: shiftDay(base, -6), end: base } },
-  { label: 'Últimos 30 dias', range: { start: shiftDay(base, -29), end: base } },
-  { label: 'Este mês', range: { start: `${base.slice(0, 7)}-01`, end: monthEnd(base) } },
-  { label: 'Mês anterior', range: prevMonth(base) },
-  { label: 'Este ano', range: { start: `${base.slice(0, 4)}-01-01`, end: `${base.slice(0, 4)}-12-31` } },
-]
-
-const PRESET_DEFAULT = 'Últimos 30 dias'
-
-const fullBR = (iso: string) =>
-  new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
 const canais = ['Todas', 'Amazon']
 const situacoes: ('Todos' | SaleStatus)[] = ['Todos', 'Recebido', 'A liberar', 'Em disputa', 'Devolvido']
@@ -97,62 +58,23 @@ export default function DashboardPage({
   const amazon = useAmazonSales(ALL_ORDERS_SINCE)
   const skuMeta = useAmazonSkus()
   const onSecurePage = typeof window !== 'undefined' && window.location.protocol === 'https:'
-  const base = HOJE
-  const periodPresets = useMemo(() => buildPresets(base), [base])
 
   const [query, setQuery] = useState('')
-  const [presetLabel, setPresetLabel] = useState(PRESET_DEFAULT)
-  const [custom, setCustom] = useState<Range | null>(null)
-  const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState<Range>({ start: shiftDay(HOJE, -2), end: HOJE })
+  const [periodo, setPeriodo] = useState<Range>(DEFAULT_RANGE)
   const [canal, setCanal] = useState(canais[0])
   const [situacao, setSituacao] = useState<'Todos' | SaleStatus>('Todos')
-  const pickerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (event: MouseEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  useEffect(() => {
-    setCustom(null)
-    setPresetLabel(PRESET_DEFAULT)
-    setDraft({ start: shiftDay(base, -2), end: base })
-  }, [base])
 
   const refresh = amazon.refresh
   useEffect(() => {
     if (syncStatus.lastSyncAt) refresh()
   }, [syncStatus.lastSyncAt, refresh])
 
-  const periodo: Range = custom ?? periodPresets.find((item) => item.label === presetLabel)!.range
-  const triggerLabel = custom ? `${fullBR(custom.start)} — ${fullBR(custom.end)}` : presetLabel
   const finance = useAmazonFinance(periodo.start)
 
   const refreshFinance = finance.refresh
   useEffect(() => {
     if (syncStatus.lastSyncAt) refreshFinance()
   }, [syncStatus.lastSyncAt, refreshFinance])
-
-  const applyPreset = (label: string) => {
-    const found = periodPresets.find((item) => item.label === label)!
-    setPresetLabel(label)
-    setCustom(null)
-    setDraft(found.range)
-    setOpen(false)
-  }
-
-  const applyCustom = () => {
-    if (!draft.start || !draft.end) return
-    const start = draft.start <= draft.end ? draft.start : draft.end
-    const end = draft.start <= draft.end ? draft.end : draft.start
-    setCustom({ start, end })
-    setOpen(false)
-  }
 
   const source = enrichSales(amazon.sales, finance.orders, skuMeta.skus)
 
@@ -394,74 +316,7 @@ export default function DashboardPage({
       <section className="dashboard-filters">
         <span className="range-chip">{range}</span>
         <div className="filter-row">
-          <div className="period-picker" ref={pickerRef}>
-            <button type="button" className="select-box period-trigger" onClick={() => setOpen((value) => !value)}>
-              <span className="filter-label">Período</span>
-              <span className="trigger-value">
-                <CalendarDays size={14} />
-                {triggerLabel}
-                <ChevronDown size={14} className={open ? 'chevron up' : 'chevron'} />
-              </span>
-            </button>
-
-            {open && (
-              <div className="period-pop">
-                <p className="pop-title">Período personalizado</p>
-                <div className="period-presets">
-                  {periodPresets.map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      className={!custom && presetLabel === item.label ? 'active' : ''}
-                      onClick={() => applyPreset(item.label)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="period-fields">
-                  <label>
-                    <span>Início</span>
-                    <input
-                      type="date"
-                      value={draft.start}
-                      onChange={(event) => setDraft((value) => ({ ...value, start: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Fim</span>
-                    <input
-                      type="date"
-                      value={draft.end}
-                      onChange={(event) => setDraft((value) => ({ ...value, end: event.target.value }))}
-                    />
-                  </label>
-                </div>
-
-                <div className="period-foot">
-                  <span className="period-hint">navegue por meses e anos no calendário</span>
-                  <div className="period-actions">
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={() => {
-                        setCustom(null)
-                        setPresetLabel(PRESET_DEFAULT)
-                        setDraft(periodPresets[2].range)
-                        setOpen(false)
-                      }}
-                    >
-                      Limpar
-                    </button>
-                    <button type="button" className="primary" onClick={applyCustom}>
-                      Aplicar
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <PeriodPicker value={periodo} onChange={setPeriodo} />
           <label className="select-box">
             <span className="filter-label">Canal</span>
             <select value={canal} onChange={(event) => setCanal(event.target.value)}>

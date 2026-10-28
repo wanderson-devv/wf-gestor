@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { AlertOctagon } from 'lucide-react'
 import { brl, num, pct } from '../data'
 import {
@@ -9,26 +9,28 @@ import {
   useAmazonSkus,
 } from '../integrations'
 import { PageHeader, Panel, StatTile } from '../components/ui'
-
-const SINCE = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+import PeriodPicker, { DEFAULT_RANGE, fullBR, type Range } from '../components/PeriodPicker'
 
 const round = (value: number) => Math.round(value * 100) / 100
 
 export default function FinancePage() {
-  const amazon = useAmazonSales(SINCE)
-  const finance = useAmazonFinance(SINCE)
+  const [periodo, setPeriodo] = useState<Range>(DEFAULT_RANGE)
+  const amazon = useAmazonSales(periodo.start)
+  const finance = useAmazonFinance(periodo.start)
   const skuMeta = useAmazonSkus()
 
   const rows = useMemo(() => {
-    const source = enrichSales(amazon.sales, finance.orders, skuMeta.skus)
+    const source = enrichSales(amazon.sales, finance.orders, skuMeta.skus).filter(
+      (sale) => sale.date >= periodo.start && sale.date <= periodo.end,
+    )
     const adsTotal = finance.ads
-      .filter((item) => item.date >= SINCE)
+      .filter((item) => item.date >= periodo.start && item.date <= periodo.end)
       .reduce((sum, item) => sum + item.amount, 0)
     return allocateAds(source, adsTotal)
-  }, [amazon.sales, finance.orders, finance.ads, skuMeta.skus])
+  }, [amazon.sales, finance.orders, finance.ads, skuMeta.skus, periodo])
 
   const adsTotal = finance.ads
-    .filter((item) => item.date >= SINCE)
+    .filter((item) => item.date >= periodo.start && item.date <= periodo.end)
     .reduce((sum, item) => sum + item.amount, 0)
 
   const known = rows.filter((sale) => sale.partial === false)
@@ -88,7 +90,7 @@ export default function FinancePage() {
           },
         ]
       : []),
-    { label: 'Faturamento bruto', value: faturamento, kind: 'sub', note: `${totals.orders} pedidos nos últimos 30 dias` },
+    { label: 'Faturamento bruto', value: faturamento, kind: 'sub', note: `${totals.orders} pedidos no período` },
     { label: '(-) Impostos sobre vendas', value: -totals.taxes, kind: 'deduction' },
     { label: '(-) Comissões e taxas de serviço', value: -totals.fees, kind: 'deduction' },
     { label: '(-) Devoluções e estornos', value: -totals.refunds, kind: 'deduction' },
@@ -116,6 +118,15 @@ export default function FinancePage() {
         description="Do faturamento bruto ao lucro líquido, calculado sobre os pedidos e o extrato financeiro reais da Amazon."
       />
 
+      <section className="dashboard-filters">
+        <span className="range-chip">
+          {fullBR(periodo.start)} a {fullBR(periodo.end)}
+        </span>
+        <div className="filter-row">
+          <PeriodPicker value={periodo} onChange={setPeriodo} />
+        </div>
+      </section>
+
       {semDados && (
         <div className="data-mode is-demo">
           <b>Sem dados no momento.</b> {amazon.message}
@@ -130,14 +141,14 @@ export default function FinancePage() {
       )}
 
       <section className="metrics">
-        <StatTile label="Faturamento bruto" value={brl(faturamento)} hint="últimos 30 dias" />
+        <StatTile label="Faturamento bruto" value={brl(faturamento)} hint={`${fullBR(periodo.start)} a ${fullBR(periodo.end)}`} />
         <StatTile label="Líquido de marketplaces" value={brl(totals.liquidoMarketplaces)} hint="após taxas e impostos" />
         <StatTile label="Lucro bruto" value={brl(totals.lucroBruto)} hint={`margem ${margem(totals.lucroBruto)}`} tone="positive" />
         <StatTile label="Lucro líquido operacional" value={brl(totals.lucroLiquido)} hint={`margem ${margem(totals.lucroLiquido)}`} tone="positive" />
       </section>
 
       <div className="two-col">
-        <Panel title="Demonstrativo de resultado" hint="Competência dos últimos 30 dias">
+        <Panel title="Demonstrativo de resultado" hint="Competência do período selecionado">
           <div className="dre">
             {lines.map((line) => (
               <div key={line.label} className={`dre-line kind-${line.kind}`}>
