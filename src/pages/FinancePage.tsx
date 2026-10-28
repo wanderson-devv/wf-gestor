@@ -76,20 +76,16 @@ export default function FinancePage() {
   const custoVenda = faturamento > 0 ? (totals.cost / faturamento) * 100 : 0
 
   const lines = [
-    ...(freight > 0
-      ? [
-          { label: 'Faturamento de produtos', value: round(faturamento - freight), kind: 'total' },
-          {
-            label: '(+) Frete cobrado do comprador',
-            value: freight,
-            kind: 'addition',
-            note:
-              freightOrders < totals.orders
-                ? `frete identificado em ${freightOrders} de ${totals.orders} pedidos`
-                : undefined,
-          },
-        ]
-      : []),
+    { label: 'Faturamento de produtos', value: round(faturamento - freight), kind: 'total' },
+    {
+      label: '(+) Frete cobrado do comprador',
+      value: freight,
+      kind: 'addition',
+      note:
+        freightOrders < totals.orders
+          ? `frete identificado em ${freightOrders} de ${totals.orders} pedidos`
+          : undefined,
+    },
     { label: 'Faturamento bruto', value: faturamento, kind: 'sub', note: `${totals.orders} pedidos no período` },
     { label: '(-) Impostos sobre vendas', value: -totals.taxes, kind: 'deduction' },
     { label: '(-) Comissões e taxas de serviço', value: -totals.fees, kind: 'deduction' },
