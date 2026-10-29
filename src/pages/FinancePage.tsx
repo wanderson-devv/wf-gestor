@@ -83,7 +83,7 @@ export default function FinancePage() {
       kind: 'addition',
       note:
         freightOrders < totals.orders
-          ? `frete identificado em ${freightOrders} de ${totals.orders} pedidos`
+          ? `frete cobrado em ${freightOrders} de ${totals.orders} pedidos`
           : undefined,
     },
     { label: 'Faturamento bruto', value: faturamento, kind: 'sub', note: `${totals.orders} pedidos no período` },
