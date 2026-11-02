@@ -223,10 +223,13 @@ export default function DashboardPage({
   const width = 900
   const height = 260
   const maxRevenue = Math.max(...daily.map((item) => item.revenue), 1)
+  // o lucro pode ficar abaixo de zero (ex.: dia sem venda que so recebeu cobranca de Ads)
+  const yMin = Math.min(...daily.map((item) => item.profit), 0)
+  const ySpan = maxRevenue - yMin
   const toPoints = (key: 'revenue' | 'net' | 'profit'): Pt[] =>
     daily.map((item, index) => ({
       x: daily.length > 1 ? (index / (daily.length - 1)) * width : width / 2,
-      y: height - (item[key] / maxRevenue) * (height - 18),
+      y: height - ((item[key] - yMin) / ySpan) * (height - 18),
     }))
 
   // Mostra poucos rotulos no eixo X (alinhados aos pontos) para nao amontoar.
@@ -362,7 +365,7 @@ export default function DashboardPage({
       <Panel title="Resumo de Receitas" hint="Movimento diário" className="revenue-panel">
         <div className="chart chart-wide">
           <div className="y-labels">
-            {[maxRevenue, maxRevenue * 0.66, maxRevenue * 0.33, 0].map((value) => (
+            {[maxRevenue, maxRevenue - ySpan / 3, maxRevenue - (2 * ySpan) / 3, yMin].map((value) => (
               <span key={value}>{brlShort(value)}</span>
             ))}
           </div>
