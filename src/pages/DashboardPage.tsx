@@ -133,15 +133,25 @@ export default function DashboardPage({
 
   const daily = useMemo(() => {
     const acc = new Map<string, { revenue: number; net: number; profit: number }>()
-    rows.forEach((sale) => {
+    filtered.forEach((sale) => {
       const current = acc.get(sale.date) ?? { revenue: 0, net: 0, profit: 0 }
       current.revenue += sale.gross
       current.net += sale.net
       current.profit += sale.profit
       acc.set(sale.date, current)
     })
-    return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, value]) => ({ date, ...value }))
-  }, [rows])
+    // o Ads cai no dia exato da cobranca, nao rateado nas vendas
+    const adsPorDia = new Map<string, number>()
+    finance.ads
+      .filter((item) => item.date >= periodo.start && item.date <= periodo.end)
+      .forEach((item) => {
+        adsPorDia.set(item.date, (adsPorDia.get(item.date) ?? 0) + item.amount)
+        if (!acc.has(item.date)) acc.set(item.date, { revenue: 0, net: 0, profit: 0 })
+      })
+    return [...acc.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, value]) => ({ date, ...value, profit: value.profit - (adsPorDia.get(date) ?? 0) }))
+  }, [filtered, finance.ads, periodo])
 
   const dates = rows.map((sale) => sale.date).sort()
   const range = dates.length
