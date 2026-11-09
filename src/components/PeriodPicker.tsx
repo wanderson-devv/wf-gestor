@@ -26,7 +26,7 @@ const prevMonth = (base: string) => {
 }
 
 const buildPresets = (base: string): { label: string; range: Range }[] => [
-  { label: 'Últimos 3 dias', range: { start: shiftDay(base, -2), end: base } },
+  { label: 'Últimos 15 dias', range: { start: shiftDay(base, -14), end: base } },
   { label: 'Últimos 7 dias', range: { start: shiftDay(base, -6), end: base } },
   { label: 'Últimos 30 dias', range: { start: shiftDay(base, -29), end: base } },
   { label: 'Este mês', range: { start: `${base.slice(0, 7)}-01`, end: monthEnd(base) } },
