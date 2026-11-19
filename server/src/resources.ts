@@ -3,13 +3,13 @@ import { readStateJson, writeState } from './db.js'
 import { is403, runReport } from './reports.js'
 import { SpApiError, spGet } from './spapi.js'
 
-export type ResourceKey = 'orders' | 'settlements' | 'inventory' | 'listings' | 'finance'
+export type ResourceKey = 'orders' | 'settlements' | 'inventory' | 'listings' | 'finance' | 'stock'
 
 export type ListingItem = { sku: string; title?: string; asin?: string; active: boolean }
 
 export type ResourceResult = { count: number; detail: string; items?: ListingItem[] }
 
-export const resourceKeys: ResourceKey[] = ['orders', 'settlements', 'inventory', 'listings', 'finance']
+export const resourceKeys: ResourceKey[] = ['orders', 'settlements', 'inventory', 'listings', 'finance', 'stock']
 
 const iso = (since: string) => new Date(`${since}T00:00:00Z`).toISOString()
 
@@ -202,6 +202,159 @@ async function listingsFromReport(): Promise<ResourceResult> {
       ? `${active} ativos · ${total - active} inativos · todos os anúncios · lidos do relatório da Amazon`
       : 'nenhum anúncio no relatório da Amazon',
   }
+}
+
+/* --- Inventário Full (MFN + FBA) por SKU ---
+
+   A API de listings não devolve quantidade e os summaries de FBA não servem
+   para envio próprio, então o estoque MFN vem da coluna "quantity" do
+   relatório GET_MERCHANT_LISTINGS_DATA (o mesmo das listagens, em cache de
+   30 min). FBA entra pelos summaries. O catálogo garante que SKU listado e
+   sem estoque apareça como "Zerado". */
+
+export type StockRow = {
+  sku: string
+  title?: string
+  asin?: string
+  fba: number
+  mfn: number
+  total: number
+  price: number
+}
+
+export type StockResult = ResourceResult & { rows: StockRow[]; aviso?: string }
+
+type StockMap = Map<string, { qty: number; title?: string; asin?: string; price?: number }>
+
+const STOCK_TTL_MS = 5 * 60_000
+let stockCache: { expiresAt: number; value: StockResult } | null = null
+let stockInFlight: Promise<StockResult> | null = null
+
+async function fetchFbaStock(since: string): Promise<StockMap> {
+  const sinceDate = Date.parse(`${since}T00:00:00Z`)
+  const start = Number.isNaN(sinceDate) ? Date.now() - 90 * 86400000 : Math.max(sinceDate, Date.now() - 90 * 86400000)
+
+  const response = (await spGet('/fba/inventory/v1/summaries', {
+    marketplaceIds: config.marketplaceId,
+    details: 'true',
+    startDateTime: new Date(start).toISOString(),
+    granularityType: 'Marketplace',
+    granularityId: config.marketplaceId,
+  })) as SpPayload<{
+    inventorySummaries?: { sellerSku?: string; totalQuantity?: number; asin?: string; itemName?: string }[]
+    summaries?: { sellerSku?: string; totalQuantity?: number; asin?: string; itemName?: string }[]
+  }>
+
+  const payload = unwrap<{
+    inventorySummaries?: { sellerSku?: string; totalQuantity?: number; asin?: string; itemName?: string }[]
+    summaries?: { sellerSku?: string; totalQuantity?: number; asin?: string; itemName?: string }[]
+  }>(response)
+
+  const map: StockMap = new Map()
+  for (const item of payload.inventorySummaries ?? payload.summaries ?? []) {
+    const sku = item.sellerSku ?? ''
+    if (!sku) continue
+    const current = map.get(sku) ?? { qty: 0 }
+    current.qty += Number(item.totalQuantity ?? 0) || 0
+    if (item.itemName && !current.title) current.title = item.itemName
+    if (item.asin && !current.asin) current.asin = item.asin
+    map.set(sku, current)
+  }
+  return map
+}
+
+async function mfnStockFromReport(): Promise<StockMap> {
+  const report = await runReport(LISTINGS_REPORT)
+  const map: StockMap = new Map()
+
+  for (const row of report.rows) {
+    const fields = normalized(row)
+    const sku = pick(fields, ['sku', 'sellersku'])
+    if (!sku) continue
+    const qty = Number(pick(fields, ['quantity', 'quantityavailable', 'availablequantity']) || 0) || 0
+    const title = pick(fields, ['itemname', 'title', 'productname'])
+    const asin = pick(fields, ['asin1', 'asin'])
+    const price = Number(pick(fields, ['price']) || 0) || 0
+
+    const current = map.get(sku) ?? { qty: 0 }
+    current.qty += qty
+    if (!current.title && title) current.title = title
+    if (!current.asin && asin) current.asin = asin
+    if (!current.price && price) current.price = price
+    map.set(sku, current)
+  }
+  return map
+}
+
+const reasonText = (reason: unknown) => (reason instanceof Error ? reason.message : 'falha na consulta')
+
+async function buildStock(since: string): Promise<StockResult> {
+   /* Catálogo em paralelo: traz títulos e entra na união de SKUs (mesmo que
+      um dos dois estoques falhe, o outro ainda responde). */
+  const catalogReady = ensureCatalog()
+  const [fbaRes, mfnRes] = await Promise.allSettled([fetchFbaStock(since), mfnStockFromReport()])
+  await catalogReady
+
+  if (fbaRes.status === 'rejected' && mfnRes.status === 'rejected') throw fbaRes.reason
+
+  const fba: StockMap = fbaRes.status === 'fulfilled' ? fbaRes.value : new Map()
+  const mfn: StockMap = mfnRes.status === 'fulfilled' ? mfnRes.value : new Map()
+
+  const avisos: string[] = []
+  if (fbaRes.status === 'rejected') avisos.push(`Estoque FBA indisponível: ${reasonText(fbaRes.reason)}`)
+  if (mfnRes.status === 'rejected') avisos.push(`Envio próprio (MFN) indisponível: ${reasonText(mfnRes.reason)}`)
+
+  const skus = new Set<string>([...fba.keys(), ...mfn.keys(), ...listingCatalog.keys()])
+  const rows: StockRow[] = []
+  let mfnUnits = 0
+  let fbaUnits = 0
+
+  for (const sku of skus) {
+    const fbaItem = fba.get(sku)
+    const mfnItem = mfn.get(sku)
+    const listed = listingCatalog.get(sku)
+    const fbaQty = fbaItem?.qty ?? 0
+    const mfnQty = mfnItem?.qty ?? 0
+    rows.push({
+      sku,
+      title: mfnItem?.title ?? listed?.title ?? fbaItem?.title,
+      asin: mfnItem?.asin ?? listed?.asin ?? fbaItem?.asin,
+      fba: fbaQty,
+      mfn: mfnQty,
+      total: fbaQty + mfnQty,
+      price: mfnItem?.price ?? 0,
+    })
+    mfnUnits += mfnQty
+    fbaUnits += fbaQty
+  }
+
+  rows.sort((a, b) => b.total - a.total || a.sku.localeCompare(b.sku))
+
+  return {
+    count: rows.length,
+    rows,
+    aviso: avisos.length ? avisos.join(' · ') : undefined,
+    detail: rows.length
+      ? `${rows.length} SKUs · ${mfnUnits} unidades em envio próprio (MFN) · ${fbaUnits} em FBA`
+      : 'nenhum SKU no estoque da loja',
+  }
+}
+
+export async function fetchStock(since: string): Promise<StockResult> {
+  if (stockCache && stockCache.expiresAt > Date.now()) return stockCache.value
+  if (stockInFlight) return stockInFlight
+
+  const promise = buildStock(since)
+    .then((value) => {
+      stockCache = { expiresAt: Date.now() + STOCK_TTL_MS, value }
+      return value
+    })
+    .finally(() => {
+      if (stockInFlight === promise) stockInFlight = null
+    })
+  stockInFlight = promise
+  promise.catch(() => undefined)
+  return promise
 }
 
 export type FinanceOrder = {
@@ -598,6 +751,7 @@ export const handlers: Record<ResourceKey, (since: string) => Promise<ResourceRe
   inventory: fetchInventory,
   listings: fetchListings,
   finance: fetchFinance,
+  stock: fetchStock,
 }
 
 export type LiveOrder = {

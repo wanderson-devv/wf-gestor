@@ -44,6 +44,8 @@ export {
   AmazonSalesError,
 } from './amazonSales'
 export type { AmazonSalesState, AmazonSalesStatus, DetailedOrder } from './amazonSales'
+export { fetchAmazonStock, useAmazonStock } from './amazonStock'
+export type { AmazonStockState, AmazonStockStatus, StockRow } from './amazonStock'
 export {
   describeSync,
   getAutoSyncStatus,

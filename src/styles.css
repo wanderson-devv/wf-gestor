@@ -494,3 +494,9 @@ td .product-cell .sub { display: block; color: var(--faint); font: 9px 'DM Mono'
 .menu-toggle:hover { border-color: rgba(0, 230, 118, .4); color: var(--txt); }
 .nav-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); z-index: 65; animation: fade-in .2s both; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
 @media (max-width: 700px) { .menu-toggle { display: grid; } }
+
+/* Fase 2 — Gráficos (tendência MPA), Reembolso e Inventário Full */
+.mpa-line { fill: none; stroke: var(--warn); stroke-width: 2.5; stroke-dasharray: 4 5; animation: pulse-line 2.4s ease-in-out infinite; }
+.legend .mpa-dot { background: var(--warn); }
+.breakdown-note.is-ok { background: rgba(0, 230, 118, .08); border-color: rgba(0, 230, 118, .25); color: var(--green-soft); }
+td .medal { font-size: 14px; }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Bell,
   Boxes,
+  ChartColumn,
   ChevronDown,
   LayoutDashboard,
   LineChart,
@@ -17,6 +18,7 @@ import SalesPage from './pages/SalesPage'
 import CatalogPage from './pages/CatalogPage'
 import FinancePage from './pages/FinancePage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import ChartsPage from './pages/ChartsPage'
 import OperationsPage from './pages/OperationsPage'
 import IntegrationsPage from './pages/IntegrationsPage'
 import SettingsPage from './pages/SettingsPage'
@@ -40,6 +42,7 @@ type View =
   | 'Catálogo'
   | 'Financeiro'
   | 'Análises'
+  | 'Gráficos'
   | 'Operação'
   | 'Integrações'
   | 'Configurações'
@@ -50,6 +53,7 @@ const nav: { label: View; icon: typeof LayoutDashboard }[] = [
   { label: 'Catálogo', icon: PackageSearch },
   { label: 'Financeiro', icon: WalletCards },
   { label: 'Análises', icon: LineChart },
+  { label: 'Gráficos', icon: ChartColumn },
   { label: 'Operação', icon: Boxes },
   { label: 'Integrações', icon: Plug },
 ]
@@ -155,6 +159,8 @@ export default function App() {
         return <FinancePage />
       case 'Análises':
         return <AnalyticsPage />
+      case 'Gráficos':
+        return <ChartsPage />
       case 'Operação':
         return <OperationsPage />
       case 'Integrações':
