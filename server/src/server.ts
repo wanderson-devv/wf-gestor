@@ -1,6 +1,7 @@
 import cors from '@fastify/cors'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +20,7 @@ import {
 } from './db.js'
 import { fetchLive, fetchOrdersDetailed, handlers, resourceKeys } from './resources.js'
 import { SpApiError } from './spapi.js'
+import { cancelSync, startSync, statusSync, stepSync } from './sync.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const distDir = resolve(here, '../../dist')
@@ -174,6 +176,64 @@ app.get<{ Querystring: { since?: string } }>('/amazon/live', async (request, rep
     throw error
   }
 })
+
+/* --- Sincronização em blocos: itens de todos os pedidos sem estourar a cota --- */
+
+function sendSyncError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
+  if (error instanceof SpApiError) {
+    return reply.code(502).send({ ok: false, error: error.message, detail: error.detail })
+  }
+  const status = (error as { statusCode?: number }).statusCode
+  if (typeof status === 'number') {
+    return reply.code(status).send({ ok: false, error: (error as Error).message })
+  }
+  request.log.error(error)
+  return reply
+    .code(500)
+    .send({ ok: false, error: 'Falha inesperada na importação.', detail: (error as Error).message })
+}
+
+app.post<{ Body: { since?: string } }>('/amazon/sync/start', async (request, reply) => {
+  if (!isConfigured()) {
+    return reply.code(503).send({
+      ok: false,
+      error: 'Proxy sem credenciais da Amazon.',
+      detail: `Preencha no .env: ${missingKeys().join(', ')}`,
+    })
+  }
+
+  const since = request.body?.since
+  const valid =
+    since && /^\d{4}-\d{2}-\d{2}$/.test(since)
+      ? since
+      : new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10)
+
+  try {
+    return { ok: true, resource: 'sync', ...(await startSync(valid)) }
+  } catch (error) {
+    return sendSyncError(request, reply, error)
+  }
+})
+
+app.post('/amazon/sync/step', async (request, reply) => {
+  if (!isConfigured()) {
+    return reply.code(503).send({
+      ok: false,
+      error: 'Proxy sem credenciais da Amazon.',
+      detail: `Preencha no .env: ${missingKeys().join(', ')}`,
+    })
+  }
+
+  try {
+    return { ok: true, resource: 'sync', ...(await stepSync()) }
+  } catch (error) {
+    return sendSyncError(request, reply, error)
+  }
+})
+
+app.post('/amazon/sync/cancel', async () => ({ ok: true, resource: 'sync', ...(await cancelSync()) }))
+
+app.get('/amazon/sync/status', async () => ({ ok: true, resource: 'sync', ...(await statusSync()) }))
 
 app.get<{ Params: { resource: string }; Querystring: { since?: string } }>(
   '/amazon/:resource',

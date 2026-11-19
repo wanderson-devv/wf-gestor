@@ -29,6 +29,14 @@ export type { SyncOutcome } from './sync'
 export { fetchLiveSales, useLiveSales } from './live'
 export type { LiveFeed, LiveSale, LiveState, LiveStatus } from './live'
 export {
+  cancelBlockSync,
+  fetchSyncStatus,
+  startBlockSync,
+  stepBlockSync,
+  useBlockSync,
+} from './blockSync'
+export type { SyncFase, SyncProgress } from './blockSync'
+export {
   ALL_ORDERS_SINCE,
   fetchAmazonSales,
   useAmazonSales,

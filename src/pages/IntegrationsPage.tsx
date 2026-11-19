@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CheckCircle2, CircleHelp, Link, RefreshCw, Save, ShieldCheck } from 'lucide-react'
 import { num } from '../data'
 import {
+  ALL_ORDERS_SINCE,
   DEFAULT_PROXY_URL,
   describeSync,
   getAutoSyncStatus,
@@ -11,6 +12,7 @@ import {
   setAutoSyncEnabled,
   syncResources,
   useAutoSyncStatus,
+  useBlockSync,
   writeProxyUrl,
 } from '../integrations'
 import { PageHeader, Panel, StatTile, Tag } from '../components/ui'
@@ -21,6 +23,9 @@ const AMAZON_CAPABILITIES = ['Pedidos e itens', 'Extrato financeiro', 'Estoque F
 export default function IntegrationsPage() {
   const [notice, setNotice] = useState('')
   const autoSync = useAutoSyncStatus()
+  const block = useBlockSync()
+  const blockProgress = block.progress
+  const blockActive = block.running || blockProgress.fase === 'items'
   const running = autoSync.running
   const amazonStates = autoSync.states
   const [proxyUrl, setProxyUrl] = useState(() => readProxyUrl())
@@ -172,6 +177,84 @@ export default function IntegrationsPage() {
             <b>{autoSync.message}</b>
             {autoSync.hint && <p>{autoSync.hint}</p>}
           </div>
+        )}
+      </Panel>
+
+      <Panel
+        title="Importação detalhada em blocos"
+        hint="Itens de todos os pedidos · respeita o limite da SP-API"
+        className="sync-run"
+        action={
+          <div className="sync-run-actions">
+            <Tag
+              value={
+                blockProgress.concluido
+                  ? 'Concluída'
+                  : block.running
+                    ? 'Em curso'
+                    : blockProgress.fase === 'items'
+                      ? 'Pausada'
+                      : 'Parada'
+              }
+            />
+            {block.running ? (
+              <button className="ghost" onClick={() => void block.cancel()}>
+                Cancelar
+              </button>
+            ) : blockProgress.fase === 'items' ? (
+              <button className="primary" onClick={() => void block.resume()}>
+                <RefreshCw size={16} /> Retomar importação
+              </button>
+            ) : (
+              <button className="primary" onClick={() => void block.start(ALL_ORDERS_SINCE)}>
+                <RefreshCw size={16} /> Importar itens agora
+              </button>
+            )}
+          </div>
+        }
+      >
+        <p className="hint-text">
+          Busca título, SKU, frete e unidades de todos os pedidos em passos curtos, com o intervalo de 2 s que a
+          SP-API exige para getOrderItems — evita o erro 429 de cota. Pode fechar a aba no meio: a importação fica
+          salva no servidor e você retoma de onde parou.
+        </p>
+
+        {blockActive && blockProgress.total > 0 && (
+          <div className="bar-row block-sync-bar">
+            <span>
+              {blockProgress.processados} de {blockProgress.total} pedidos · {blockProgress.itens} itens
+            </span>
+            <b>{blockProgress.percentual}%</b>
+            <div className="bar-track">
+              <i className="bar-a" style={{ width: `${blockProgress.percentual}%` }} />
+            </div>
+          </div>
+        )}
+
+        {blockProgress.concluido && !block.error && (
+          <div className="sync-outcome is-ok" role="status">
+            <b>
+              Importação concluída: {blockProgress.total} pedido(s) com {blockProgress.itens} item(ns) detalhados.
+            </b>
+            <p>Abra Vendas ou a Visão geral para ver título, frete e unidades em todas as vendas.</p>
+          </div>
+        )}
+
+        {block.error && (
+          <div className="sync-outcome is-error" role="status">
+            <b>A importação parou antes de terminar.</b>
+            <p>
+              {block.error} — use “Retomar importação” para continuar de onde parou.
+            </p>
+          </div>
+        )}
+
+        {blockProgress.avisos.length > 0 && (
+          <ul className="sync-warn">
+            {blockProgress.avisos.map((aviso) => (
+              <li key={aviso}>{aviso}</li>
+            ))}
+          </ul>
         )}
       </Panel>
 

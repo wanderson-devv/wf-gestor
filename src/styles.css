@@ -367,6 +367,9 @@ tr.clickable { cursor: pointer; }
 .sync-outcome.is-ok { background: rgba(0, 230, 118, .1); border: 1px solid rgba(0, 230, 118, .3); color: var(--green-soft); }
 .sync-outcome.is-error { background: rgba(255, 107, 107, .1); border: 1px solid rgba(255, 107, 107, .3); color: #ff9494; }
 .sync-outcome p { margin: 5px 0 0; font-size: 11px; line-height: 1.5; opacity: .88; }
+.block-sync-bar { margin-top: 14px; }
+.sync-warn { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.sync-warn li { padding: 9px 11px; border-radius: 9px; background: rgba(255, 196, 84, .08); border: 1px solid rgba(255, 196, 84, .28); color: #ffd9a0; font-size: 11px; line-height: 1.5; }
 .sync-run-list li.is-pendente .sync-mark { background: rgba(255, 201, 77, .14); color: var(--warn); }
 .sync-run-list li.is-pendente .result { color: var(--warn); }
 .auto-sync { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 12px 14px; background: rgba(255, 255, 255, .04); border: 1px dashed rgba(0, 230, 118, .3); border-radius: 11px; cursor: pointer; }

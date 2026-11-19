@@ -1,4 +1,5 @@
 import { config } from './config.js'
+import { readStateJson, writeState } from './db.js'
 import { is403, runReport } from './reports.js'
 import { SpApiError, spGet } from './spapi.js'
 
@@ -669,13 +670,69 @@ export type DetailedResult = {
   fetchedAt: string
 }
 
-async function readOrderItems(orderId: string): Promise<DetailedItem[] | null> {
+/* Itens importados pela sincronização em blocos, persistidos no banco para
+   sobreviver a reinícios do proxy. É a fonte barata: cobre todos os pedidos
+   do período sem nenhuma chamada à SP-API. */
+const SYNC_ITEMS_KEY = 'sync.items'
+let syncItems: Map<string, DetailedItem[]> | null = null
+let syncItemsLoading: Promise<Map<string, DetailedItem[]>> | null = null
+
+async function ensureSyncItems(): Promise<Map<string, DetailedItem[]>> {
+  if (syncItems) return syncItems
+  if (!syncItemsLoading) {
+    syncItemsLoading = readStateJson<Record<string, DetailedItem[]>>(SYNC_ITEMS_KEY)
+      .then((raw) => {
+        syncItems = new Map(Object.entries(raw ?? {}))
+        return syncItems
+      })
+      .catch(() => {
+        syncItems = new Map<string, DetailedItem[]>()
+        return syncItems
+      })
+  }
+  return syncItemsLoading
+}
+
+export async function getSyncItems(): Promise<Map<string, DetailedItem[]>> {
+  return ensureSyncItems()
+}
+
+export async function putSyncItem(orderId: string, items: DetailedItem[]): Promise<void> {
+  const map = await ensureSyncItems()
+  map.set(orderId, items)
+}
+
+export async function persistSyncItems(): Promise<void> {
+  const map = await ensureSyncItems()
+  await writeState(SYNC_ITEMS_KEY, JSON.stringify(Object.fromEntries(map)))
+}
+
+/* getOrderItems tem limite de 0,5 req/s na SP-API: um slot próprio de 2,1 s
+   evita o429 mesmo quando várias rotas pedem itens ao mesmo tempo. */
+const ITEMS_MIN_INTERVAL_MS = 2100
+let lastItemsAt = 0
+
+async function itemsSlot(): Promise<void> {
+  const wait = lastItemsAt + ITEMS_MIN_INTERVAL_MS - Date.now()
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+  lastItemsAt = Date.now()
+}
+
+type ItemsOptions = { rethrow?: boolean }
+
+export async function readOrderItems(orderId: string, options: ItemsOptions = {}): Promise<DetailedItem[] | null> {
+  /* Primeiro o banco (importação em blocos), depois a memória e só então a
+     Amazon. Um pedido já importado nunca volta a gastar cota. */
+  const stored = (await ensureSyncItems()).get(orderId)
+  if (stored) return stored
+
   if (itemsUnavailable) return null
 
   const cached = itemCache.get(orderId)
   if (cached) return cached
 
   try {
+    await itemsSlot()
     const response = (await spGet(`/orders/v0/orders/${orderId}/orderItems`)) as SpPayload<{
       OrderItems?: {
         Title?: string
@@ -715,7 +772,13 @@ async function readOrderItems(orderId: string): Promise<DetailedItem[] | null> {
     }
     return items
   } catch (error) {
-    if (error instanceof SpApiError && error.message.includes('403')) itemsUnavailable = true
+    if (error instanceof SpApiError && error.message.includes('403')) {
+      itemsUnavailable = true
+      return null
+    }
+    /* A sincronização em blocos prefere saber da falha (429/5xx) para
+       repetir o pedido no passo seguinte; os demais fluxos seguem sem itens. */
+    if (options.rethrow) throw error
     return null
   }
 }
@@ -867,6 +930,16 @@ export async function fetchLive(since: string): Promise<LiveResult> {
   return value
 }
 
+function applyOrderItems(order: DetailedOrder, items: DetailedItem[]) {
+  order.items = items
+  const qty = items.reduce((sum, item) => sum + item.qty, 0)
+  if (qty > 0) order.units = qty
+  const itemTotal = items.reduce((sum, item) => sum + item.price, 0)
+  const declared = items.reduce((sum, item) => sum + (item.shipping ?? 0), 0)
+  const derived = itemTotal > 0 && itemTotal < order.amount ? order.amount - itemTotal : 0
+  order.shipping = Math.round((declared > 0 ? declared : derived) * 100) / 100
+}
+
 export async function fetchOrdersDetailed(since: string): Promise<DetailedResult> {
   if (detailCache && detailCache.key === since && detailCache.expiresAt > Date.now()) {
     return detailCache.value
@@ -909,17 +982,25 @@ export async function fetchOrdersDetailed(since: string): Promise<DetailedResult
   let enriched = 0
   let source = 'api'
 
+  /* Primeiro os itens já importados pela sincronização em blocos: vêm do
+     banco e cobrem todos os pedidos do período sem tocar na SP-API. */
+  const store = await ensureSyncItems()
+  for (const order of orders) {
+    const stored = store.get(order.id)
+    if (stored?.length) {
+      applyOrderItems(order, stored)
+      enriched += 1
+    }
+  }
+
+  /* Só o que faltar é buscado na Amazon, com poucos pedidos por chamada —
+     o resto espera a importação em blocos na tela Integrações. */
   if (!itemsUnavailable) {
-    for (const order of orders.slice(0, DETAIL_ENRICH_LIMIT)) {
+    const missing = orders.filter((order) => !order.items.length)
+    for (const order of missing.slice(0, DETAIL_ENRICH_LIMIT)) {
       const items = await readOrderItems(order.id)
       if (items?.length) {
-        order.items = items
-        const qty = items.reduce((sum, item) => sum + item.qty, 0)
-        if (qty > 0) order.units = qty
-        const itemTotal = items.reduce((sum, item) => sum + item.price, 0)
-        const declared = items.reduce((sum, item) => sum + (item.shipping ?? 0), 0)
-        const derived = itemTotal > 0 && itemTotal < order.amount ? order.amount - itemTotal : 0
-        order.shipping = Math.round((declared > 0 ? declared : derived) * 100) / 100
+        applyOrderItems(order, items)
         enriched += 1
       }
       if (itemsUnavailable) break
