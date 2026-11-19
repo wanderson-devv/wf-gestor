@@ -109,12 +109,15 @@ export default function AnalyticsPage() {
   const refund = useMemo(() => {
     const janela = source.filter((sale) => sale.date >= FINANCE_SINCE)
 
+    /* Faturamento vem das vendas da janela (sale.gross) e não do extrato:
+       pedido cancelado/devolvido antes de faturar não gera evento no
+       extrato e apareceria como R$ 0,00. */
     const vendidas = new Map<string, number>()
     const faturado = new Map<string, number>()
-    finance.skus.forEach((item) => faturado.set(item.sku, item.revenue))
     janela.forEach((sale) => {
       if (!usable(sale.sku)) return
       vendidas.set(sale.sku, (vendidas.get(sale.sku) ?? 0) + sale.qty)
+      faturado.set(sale.sku, (faturado.get(sale.sku) ?? 0) + sale.gross)
     })
 
     const devolvidas = new Map<string, number>()
