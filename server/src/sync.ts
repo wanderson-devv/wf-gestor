@@ -144,18 +144,36 @@ async function progresso(): Promise<SyncProgress> {
     avisos: current.avisos,
     iniciadoEm: current.startedAt,
     atualizadoEm: current.updatedAt,
-    retomavel: current.phase === 'items',
+    retomavel: current.phase === 'items' || current.phase === 'listing',
   }
 }
 
 let stepRunning = false
 
-/* Etapa 1: lista os pedidos do período e cria o job. */
+/* Etapa 1: cria o job ainda sem tocar na SP-API — assim um429 na listagem
+   deixa o job salvo (fase "listing") e o botão Retomar passa a valer. */
 export async function startSync(since: string): Promise<SyncProgress> {
   if (stepRunning) {
     throw syncError(409, 'Um passo da importação está em curso. Aguarde a barra avançar.')
   }
 
+  const fresh: SyncJob = {
+    id: `job_${Date.now()}`,
+    since,
+    startedAt: now(),
+    updatedAt: now(),
+    phase: 'listing',
+    orders: [],
+    cursor: 0,
+    avisos: [],
+    semItens: 0,
+  }
+  await saveJob(fresh)
+  return progresso()
+}
+
+/* Listagem dos pedidos do período (etapa interna do passo). */
+async function listOrders(since: string): Promise<{ orders: SyncJobOrder[]; truncated: boolean }> {
   const createdAfter = new Date(`${since}T00:00:00Z`).toISOString()
   const collected: RawOrder[] = []
   let nextToken: string | undefined
@@ -187,29 +205,11 @@ export async function startSync(since: string): Promise<SyncProgress> {
     }))
     .sort((a, b) => (b.purchasedAt > a.purchasedAt ? 1 : -1))
 
-  const avisos: string[] = []
-  if (nextToken) {
-    avisos.push(
-      'O período tem mais pedidos do que cabe numa importação (limite de 1.000). Sincronize um intervalo menor para completar o histórico.',
-    )
-  }
-
-  const fresh: SyncJob = {
-    id: `job_${Date.now()}`,
-    since,
-    startedAt: now(),
-    updatedAt: now(),
-    phase: orders.length ? 'items' : 'done',
-    orders,
-    cursor: 0,
-    avisos,
-    semItens: 0,
-  }
-  await saveJob(fresh)
-  return progresso()
+  return { orders, truncated: Boolean(nextToken) }
 }
 
-/* Etapa 2: processa o próximo bloco de itens dentro do orçamento de tempo. */
+/* Etapa 2: lista (se ainda não listou) e processa um bloco de itens dentro
+   do orçamento de tempo, devolvendo o progresso. */
 export async function stepSync(): Promise<SyncProgress> {
   if (stepRunning) throw syncError(409, 'Outro passo da importação já está em curso.')
   stepRunning = true
@@ -219,7 +219,22 @@ export async function stepSync(): Promise<SyncProgress> {
     if (!current) {
       throw syncError(409, 'Nenhuma importação em andamento. Comece de novo.')
     }
-    if (current.phase !== 'items') return progresso()
+    if (current.phase === 'done') return progresso()
+
+    if (current.phase === 'listing') {
+      const { orders, truncated } = await listOrders(current.since)
+      if (jobCache !== current) return progresso()
+      current.orders = orders
+      if (truncated) {
+        current.avisos.push(
+          'O período tem mais pedidos do que cabe numa importação (limite de 1.000). Sincronize um intervalo menor para completar o histórico.',
+        )
+      }
+      current.phase = orders.length ? 'items' : 'done'
+      current.updatedAt = now()
+      await saveJob(current)
+      return progresso()
+    }
 
     const limite = Date.now() + STEP_BUDGET_MS
     while (current.cursor < current.orders.length && Date.now() < limite) {

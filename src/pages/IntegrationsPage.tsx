@@ -25,7 +25,7 @@ export default function IntegrationsPage() {
   const autoSync = useAutoSyncStatus()
   const block = useBlockSync()
   const blockProgress = block.progress
-  const blockActive = block.running || blockProgress.fase === 'items'
+  const blockActive = block.running || blockProgress.retomavel
   const running = autoSync.running
   const amazonStates = autoSync.states
   const [proxyUrl, setProxyUrl] = useState(() => readProxyUrl())
@@ -192,7 +192,7 @@ export default function IntegrationsPage() {
                   ? 'Concluída'
                   : block.running
                     ? 'Em curso'
-                    : blockProgress.fase === 'items'
+                    : blockProgress.retomavel
                       ? 'Pausada'
                       : 'Parada'
               }
@@ -201,7 +201,7 @@ export default function IntegrationsPage() {
               <button className="ghost" onClick={() => void block.cancel()}>
                 Cancelar
               </button>
-            ) : blockProgress.fase === 'items' ? (
+            ) : blockProgress.retomavel ? (
               <button className="primary" onClick={() => void block.resume()}>
                 <RefreshCw size={16} /> Retomar importação
               </button>
@@ -218,6 +218,10 @@ export default function IntegrationsPage() {
           SP-API exige para getOrderItems — evita o erro 429 de cota. Pode fechar a aba no meio: a importação fica
           salva no servidor e você retoma de onde parou.
         </p>
+
+        {block.running && blockProgress.total === 0 && (
+          <p className="hint-text block-sync-bar">Listando os pedidos do período na Amazon…</p>
+        )}
 
         {blockActive && blockProgress.total > 0 && (
           <div className="bar-row block-sync-bar">
@@ -244,7 +248,10 @@ export default function IntegrationsPage() {
           <div className="sync-outcome is-error" role="status">
             <b>A importação parou antes de terminar.</b>
             <p>
-              {block.error} — use “Retomar importação” para continuar de onde parou.
+              {block.error} —{' '}
+              {blockProgress.retomavel
+                ? 'use “Retomar importação” para continuar de onde parou.'
+                : 'use “Importar itens agora” para tentar de novo.'}
             </p>
           </div>
         )}

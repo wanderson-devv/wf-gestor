@@ -106,7 +106,7 @@ export function useBlockSync() {
 
     let current = first
     try {
-      while (!stopRef.current && current.fase === 'items') {
+      while (!stopRef.current && (current.fase === 'items' || current.fase === 'listing')) {
         current = await stepBlockSync()
         setProgress(current)
       }
