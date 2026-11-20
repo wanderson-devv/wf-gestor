@@ -59,7 +59,10 @@ export class AmazonSpApiConnector implements ChannelConnector {
 
   async probe(): Promise<ProbeResult> {
     this.assertConfigured()
-    const response = await fetch(`${this.base}/amazon/health`, { headers: { Accept: 'application/json' } })
+    const response = await fetch(`${this.base}/amazon/health`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
     const body = (await response.json().catch(() => ({}))) as {
       ok?: boolean
       configured?: boolean
@@ -80,6 +83,7 @@ export class AmazonSpApiConnector implements ChannelConnector {
   async fetch(resource: SyncResource, since: string): Promise<FetchResult> {
     this.assertConfigured()
     const response = await fetch(`${this.base}/amazon/${resource}?since=${encodeURIComponent(since)}`, {
+      credentials: 'include',
       headers: { Accept: 'application/json' },
     })
     const body = (await response.json().catch(() => ({}))) as {

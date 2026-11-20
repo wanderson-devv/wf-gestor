@@ -7,8 +7,24 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config, isConfigured, missingKeys } from './config.js'
 import {
+  burnPasswordTime,
+  clearSessionCookie,
+  hashPassword,
+  hashResetToken,
+  newResetToken,
+  readSessionCookie,
+  sessionCookie,
+  signSession,
+  verifyPassword,
+} from './auth.js'
+import {
   STATE,
   backend,
+  countUsers,
+  createUser,
+  findUserByEmail,
+  findUserById,
+  findUserByResetHash,
   importSkus,
   importState,
   listSkus,
@@ -16,8 +32,11 @@ import {
   readState,
   readStateJson,
   replaceSku,
+  setUserPassword,
+  setUserReset,
   writeState,
 } from './db.js'
+import { sendRecoveryEmail } from './email.js'
 import { fetchLive, fetchOrdersDetailed, handlers, resourceKeys } from './resources.js'
 import { SpApiError } from './spapi.js'
 import { cancelSync, startSync, statusSync, stepSync } from './sync.js'
@@ -37,9 +56,23 @@ app.addHook('onRequest', async (request, reply) => {
 // methods explicito: o default de @fastify/cors e 'GET,HEAD,POST' (sem PUT),
 // o que faz o navegador barrar o preflight dos PUT /db/* e o cliente reportar
 // "proxy indisponivel".
+// credentials: o front (GitHub Pages) manda o cookie de sessão, e CORS com
+// credenciais proibe ACAO "*": por isso config.corsOrigin lista as origens.
 await app.register(cors, {
-  origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(','),
+  origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(',').map((value) => value.trim()),
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  credentials: true,
+})
+
+/* Todo /amazon/* e /db/* exige sessão (cookie assinado). /health e /auth/*
+   ficam públicos: o keep-alive usa /health e o próprio login usa /auth. */
+app.addHook('onRequest', async (request, reply) => {
+  if (request.method === 'OPTIONS') return // preflight do CORS
+  const path = request.url.split('?')[0]
+  if (!path.startsWith('/amazon') && !path.startsWith('/db')) return
+  if (!readSessionCookie(request)) {
+    return reply.code(401).send({ ok: false, error: 'Faça login para acessar o proxy.', detail: 'Sessão ausente ou expirada.' })
+  }
 })
 
 if (hasFront) {
@@ -274,9 +307,96 @@ app.get<{ Params: { resource: string }; Querystring: { since?: string } }>(
   },
 )
 
+/* --- Login e recuperação de senha (Fase 3) --- */
+
+const MIN_PASSWORD = 8
+let lastForgotAt = 0
+
+app.post<{ Body: { email?: string; password?: string } }>('/auth/login', async (request, reply) => {
+  const email = String(request.body?.email ?? '').trim().toLowerCase()
+  const password = String(request.body?.password ?? '')
+  if (!email || !password) {
+    return reply.code(400).send({ ok: false, error: 'Informe e-mail e senha.' })
+  }
+
+  const user = await findUserByEmail(email)
+  let valid = false
+  if (user) {
+    valid = verifyPassword(password, user.passwordSalt, user.passwordHash)
+  } else {
+    /* gasta o mesmo tempo de scrypt de um login válido: resposta idêntica
+       para e-mail inexistente e senha errada */
+    burnPasswordTime(password)
+  }
+
+  if (!user || !valid) {
+    return reply.code(401).send({ ok: false, error: 'E-mail ou senha incorretos.' })
+  }
+
+  reply.header('set-cookie', sessionCookie(request, signSession(user.id)))
+  return { ok: true, user: { email: user.email, name: user.name } }
+})
+
+app.post('/auth/logout', async (request, reply) => {
+  reply.header('set-cookie', clearSessionCookie(request))
+  return { ok: true }
+})
+
+app.get('/auth/me', async (request) => {
+  if ((await countUsers()) === 0) return { ok: true, authed: false, needsSetup: true }
+  const session = readSessionCookie(request)
+  if (!session) return { ok: true, authed: false }
+  const user = await findUserById(session.uid)
+  if (!user) return { ok: true, authed: false }
+  return { ok: true, authed: true, user: { email: user.email, name: user.name } }
+})
+
+app.post<{ Body: { email?: string } }>('/auth/forgot', async (request) => {
+  const email = String(request.body?.email ?? '').trim().toLowerCase()
+  /* Sempre a mesma resposta, exista ou não a conta — e com cooldown para o
+     endpoint não virar bomba de e-mail. */
+  const message = 'Se esse e-mail tiver uma conta, o link de recuperação chega em instantes.'
+  if (!email || Date.now() - lastForgotAt < 15_000) return { ok: true, message }
+
+  lastForgotAt = Date.now()
+  const user = await findUserByEmail(email)
+  if (user) {
+    const { token, tokenHash } = newResetToken()
+    await setUserReset(user.id, tokenHash, new Date(Date.now() + 30 * 60_000).toISOString())
+    const link = `${config.appBaseUrl}?reset=${encodeURIComponent(token)}`
+    const { sent } = await sendRecoveryEmail({ to: user.email, name: user.name || undefined, link })
+    if (!sent) request.log.warn({ to: user.email }, 'link de recuperação não enviado (ver log [email])')
+  }
+  return { ok: true, message }
+})
+
+app.post<{ Body: { token?: string; password?: string } }>('/auth/reset', async (request, reply) => {
+  const token = String(request.body?.token ?? '').trim()
+  const password = String(request.body?.password ?? '')
+  if (!token) {
+    return reply.code(400).send({ ok: false, error: 'Link de recuperação inválido.' })
+  }
+  if (password.length < MIN_PASSWORD) {
+    return reply
+      .code(400)
+      .send({ ok: false, error: `A senha precisa ter ao menos ${MIN_PASSWORD} caracteres.` })
+  }
+
+  const user = await findUserByResetHash(hashResetToken(token))
+  if (!user?.resetExpires || Date.parse(user.resetExpires) < Date.now()) {
+    return reply
+      .code(400)
+      .send({ ok: false, error: 'Link de recuperação inválido ou expirado. Peça um novo.' })
+  }
+
+  const { salt, hash } = hashPassword(password)
+  await setUserPassword(user.id, salt, hash)
+  return { ok: true }
+})
+
 app.setNotFoundHandler(async (request, reply) => {
   const path = request.url.split('?')[0]
-  const isApi = path.startsWith('/amazon') || path.startsWith('/db') || path.startsWith('/health')
+  const isApi = path.startsWith('/amazon') || path.startsWith('/db') || path.startsWith('/health') || path.startsWith('/auth')
   if (isApi || !hasFront || request.method !== 'GET') {
     return reply.code(404).send({ ok: false, error: `Rota desconhecida: ${path}` })
   }
@@ -284,6 +404,28 @@ app.setNotFoundHandler(async (request, reply) => {
     .type('text/html; charset=utf-8')
     .send(readFileSync(resolve(distDir, 'index.html'), 'utf8'))
 })
+
+/* Conta administradora das envs WF_ADMIN_*: criada uma única vez (no banco),
+   só quando ainda não existe ninguém. Depois disso a senha muda pelo fluxo
+   "esqueci a senha". */
+async function ensureAdminUser() {
+  if (!config.adminEmail || !config.adminPassword) return
+  if ((await countUsers()) > 0) return
+  const { salt, hash } = hashPassword(config.adminPassword)
+  await createUser(config.adminEmail, '', salt, hash)
+  console.log(`[auth] Conta administradora criada: ${config.adminEmail}`)
+}
+
+try {
+  await ensureAdminUser()
+  if ((await countUsers()) === 0) {
+    console.warn(
+      '[auth] Nenhuma conta de usuário. Defina WF_ADMIN_EMAIL e WF_ADMIN_PASSWORD (e RESEND_API_KEY) para liberar o login.',
+    )
+  }
+} catch (error) {
+  console.error('[auth] Falha ao preparar contas:', (error as Error).message)
+}
 
 try {
   await app.listen({ port: config.port, host: config.host })

@@ -106,6 +106,7 @@ export async function fetchAmazonSales(since: string): Promise<{ sales: Sale[]; 
   let response: Response
   try {
     response = await fetch(`${base}/amazon/orders-detailed?since=${encodeURIComponent(since)}`, {
+      credentials: 'include',
       headers: { Accept: 'application/json' },
     })
   } catch {

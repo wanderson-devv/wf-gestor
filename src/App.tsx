@@ -3,9 +3,9 @@ import {
   Bell,
   Boxes,
   ChartColumn,
-  ChevronDown,
   LayoutDashboard,
   LineChart,
+  LogOut,
   Menu,
   PackageSearch,
   Plug,
@@ -22,6 +22,7 @@ import ChartsPage from './pages/ChartsPage'
 import OperationsPage from './pages/OperationsPage'
 import IntegrationsPage from './pages/IntegrationsPage'
 import SettingsPage from './pages/SettingsPage'
+import LoginPage from './pages/LoginPage'
 import LiveToast from './components/LiveToast'
 import { brl } from './data'
 import {
@@ -29,9 +30,11 @@ import {
   loadAppDb,
   prefetchCoreData,
   startAutoSync,
+  useAuth,
   useAutoSyncStatus,
   useLiveSales,
   useMinuteTick,
+  type AuthApi,
   type LiveSale,
   type LiveStatus,
 } from './integrations'
@@ -75,7 +78,14 @@ const hora = (iso: string) => {
     : `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
 }
 
-export default function App() {
+const initials = (value?: string) => {
+  const source = (value ?? '').trim()
+  if (!source) return 'WF'
+  const parts = source.split(/[\s@._-]+/).filter(Boolean)
+  return ((parts[0]?.[0] ?? 'W') + (parts[1]?.[0] ?? '')).toUpperCase() || 'WF'
+}
+
+function AppShell({ auth }: { auth: AuthApi }) {
   const [view, setView] = useState<View>('Visão geral')
   const live = useLiveSales(30000)
   const sync = useAutoSyncStatus()
@@ -208,12 +218,20 @@ export default function App() {
             Configurações
           </button>
           <div className="profile">
-            <span>WF</span>
+            <span>{initials(auth.user?.name || auth.user?.email)}</span>
             <div>
-              <b>Wanderson F.</b>
+              <b>{auth.user?.name || auth.user?.email || 'Conta'}</b>
               <small>Administrador</small>
             </div>
-            <ChevronDown size={15} />
+            <button
+              className="profile-out"
+              type="button"
+              title="Sair da conta"
+              aria-label="Sair da conta"
+              onClick={() => void auth.logout()}
+            >
+              <LogOut size={15} />
+            </button>
           </div>
         </div>
       </aside>
@@ -322,4 +340,28 @@ export default function App() {
       <LiveToast sales={toasts} onOpen={goVendas} onClose={closeToast} />
     </main>
   )
+}
+
+function Splash() {
+  return (
+    <div className="login-screen">
+      <div className="login-card login-splash">
+        <a className="brand login-brand" href="#top">
+          <span>WF</span>
+          <b>Gestor</b>
+        </a>
+        <p className="login-sub">Verificando sua sessão…</p>
+      </div>
+    </div>
+  )
+}
+
+/* Guarda de sessão: checando → splash, sem sessão → LoginPage, com sessão →
+   o app só monta aqui (os dados e o auto-sync só rodam logado). */
+export default function App() {
+  const auth = useAuth()
+
+  if (auth.status === 'checking') return <Splash />
+  if (auth.status !== 'authed') return <LoginPage auth={auth} />
+  return <AppShell auth={auth} />
 }

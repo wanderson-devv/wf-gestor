@@ -74,6 +74,7 @@ export async function fetchAmazonFinance(
   let response: Response
   try {
     response = await fetch(`${base}/amazon/finance?since=${encodeURIComponent(since)}`, {
+      credentials: 'include',
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -140,7 +141,10 @@ export async function fetchAmazonListings(): Promise<ListingsState> {
     }
   }
 
-  const response = await fetch(`${base}/amazon/listings`, { headers: { Accept: 'application/json' } })
+  const response = await fetch(`${base}/amazon/listings`, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
   const body = (await response.json().catch(() => ({}))) as {
     ok?: boolean
     count?: number

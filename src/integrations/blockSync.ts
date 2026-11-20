@@ -50,6 +50,7 @@ async function call(path: string, init?: RequestInit): Promise<SyncProgress> {
   let response: Response
   try {
     response = await fetch(`${base}${path}`, {
+      credentials: 'include',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       ...init,
     })

@@ -41,7 +41,10 @@ export async function fetchAmazonStock(): Promise<AmazonStockState> {
 
   let response: Response
   try {
-    response = await fetch(`${base}/amazon/stock`, { headers: { Accept: 'application/json' } })
+    response = await fetch(`${base}/amazon/stock`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
   } catch {
     return {
       status: 'erro',

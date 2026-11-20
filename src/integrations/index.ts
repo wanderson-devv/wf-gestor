@@ -46,6 +46,8 @@ export {
 export type { AmazonSalesState, AmazonSalesStatus, DetailedOrder } from './amazonSales'
 export { fetchAmazonStock, useAmazonStock } from './amazonStock'
 export type { AmazonStockState, AmazonStockStatus, StockRow } from './amazonStock'
+export { fetchAuthMe, useAuth } from './auth'
+export type { AuthApi, AuthState, AuthStatus, AuthUser } from './auth'
 export {
   describeSync,
   getAutoSyncStatus,

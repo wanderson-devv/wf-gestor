@@ -85,7 +85,10 @@ export async function fetchLiveSales(): Promise<{ sales: LiveSale[]; detail: str
 
   let response: Response
   try {
-    response = await fetch(`${base}/amazon/live`, { headers: { Accept: 'application/json' } })
+    response = await fetch(`${base}/amazon/live`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
   } catch {
     throw new LiveError('erro', 'Proxy SP-API indisponível.', proxyHint())
   }
