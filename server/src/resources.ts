@@ -22,7 +22,12 @@ function unwrap<T>(response: Record<string, unknown>): T {
   return (payload ?? response) as T
 }
 
+const ORDERS_TTL_MS = 3 * 60_000
+let ordersCache: { key: string; expiresAt: number; value: ResourceResult } | null = null
+
 async function fetchOrders(since: string): Promise<ResourceResult> {
+  if (ordersCache && ordersCache.key === since && ordersCache.expiresAt > Date.now()) return ordersCache.value
+
   let nextToken: string | undefined
   let count = 0
   let latest = ''
@@ -47,10 +52,12 @@ async function fetchOrders(since: string): Promise<ResourceResult> {
     if (!nextToken || orders.length === 0) break
   }
 
-  return {
+  const result: ResourceResult = {
     count,
     detail: latest ? `último pedido em ${latest.slice(0, 10)}` : 'nenhum pedido no período',
   }
+  ordersCache = { key: since, expiresAt: Date.now() + ORDERS_TTL_MS, value: result }
+  return result
 }
 
 async function fetchSettlements(since: string): Promise<ResourceResult> {

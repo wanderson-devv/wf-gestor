@@ -59,6 +59,9 @@ const amzDate = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\
 const USER_AGENT = 'WFGestor/1.0 (Language=TypeScript; Platform=node)'
 
 const MIN_INTERVAL_MS = 1100
+/* Espera progressiva em 429: a SP-API aplica degradação após estourar a cota
+   e liberar rápido não resolve — intervalos maiores atravessam o pico. */
+const RETRY_429_MS = [3000, 6000]
 let gate: Promise<unknown> = Promise.resolve()
 let lastRequestAt = 0
 
@@ -80,7 +83,8 @@ async function call(url: string, makeInit: () => FetchInit): Promise<FetchRespon
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) {
-      await new Promise((resolve) => setTimeout(resolve, response?.status === 429 ? 1400 : 700))
+      const wait = response?.status === 429 ? (RETRY_429_MS[attempt - 1] ?? 6000) : 700
+      await new Promise((resolve) => setTimeout(resolve, wait))
     }
 
     await acquireSlot()
