@@ -59,35 +59,49 @@ const amzDate = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\
 const USER_AGENT = 'WFGestor/1.0 (Language=TypeScript; Platform=node)'
 
 const MIN_INTERVAL_MS = 1100
-/* Espera progressiva em 429: a SP-API aplica degradação após estourar a cota
-   e liberar rápido não resolve — intervalos maiores atravessam o pico. */
-const RETRY_429_MS = [3000, 6000]
-let gate: Promise<unknown> = Promise.resolve()
-let lastRequestAt = 0
+/* A cota real de getOrders neste app é muito menor que a documentada
+   (16/min): duas chamadas seguidas a /orders/v0/orders estouram mesmo com
+   1,1 s de intervalo, enquanto chamadas isoladas a cada ~10 s passam. Por
+   isso esse endpoint tem um gate próprio, bem mais lento. */
+const ORDERS_INTERVAL_MS = 15000
+/* Espera progressiva em 429: a SP-API aplica degradação após estourar a
+   cota e re-tentar rápido só renova o bloqueio. */
+const RETRY_429_MS = [5000, 10000]
 
-function acquireSlot(): Promise<void> {
-  const next = gate.then(async () => {
-    const wait = MIN_INTERVAL_MS - (Date.now() - lastRequestAt)
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
-    lastRequestAt = Date.now()
-  })
-  gate = next.catch(() => undefined)
-  return next
+function makeGate(minIntervalMs: number) {
+  let gate: Promise<unknown> = Promise.resolve()
+  let lastRequestAt = 0
+  return async function acquire(): Promise<void> {
+    const next = gate.then(async () => {
+      const wait = minIntervalMs - (Date.now() - lastRequestAt)
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+      lastRequestAt = Date.now()
+    })
+    gate = next.catch(() => undefined)
+    return next
+  }
 }
+
+const acquireSlot = makeGate(MIN_INTERVAL_MS)
+const acquireOrdersSlot = makeGate(ORDERS_INTERVAL_MS)
 
 type FetchInit = Parameters<typeof fetch>[1]
 type FetchResponse = Awaited<ReturnType<typeof fetch>>
 
-async function call(url: string, makeInit: () => FetchInit): Promise<FetchResponse> {
+async function call(
+  url: string,
+  makeInit: () => FetchInit,
+  acquire: () => Promise<void> = acquireSlot,
+): Promise<FetchResponse> {
   let response: FetchResponse | undefined
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) {
-      const wait = response?.status === 429 ? (RETRY_429_MS[attempt - 1] ?? 6000) : 700
+      const wait = response?.status === 429 ? (RETRY_429_MS[attempt - 1] ?? 10000) : 700
       await new Promise((resolve) => setTimeout(resolve, wait))
     }
 
-    await acquireSlot()
+    await acquire()
     response = await fetch(url, makeInit())
 
     const retryable = response.status === 429 || (response.status >= 500 && response.status <= 599)
@@ -109,17 +123,22 @@ async function jsonRequest(
   const token = await getAccessToken()
   const method = options.method ?? 'GET'
   const payload = options.body === undefined ? undefined : JSON.stringify(options.body)
+  const acquire = path.startsWith('/orders/v0/orders') ? acquireOrdersSlot : acquireSlot
 
-  const response = await call(url.toString(), () => {
-    const headers: Record<string, string> = {
-      'x-amz-access-token': token,
-      'x-amz-date': amzDate(),
-      'user-agent': USER_AGENT,
-      accept: 'application/json',
-    }
-    if (payload !== undefined) headers['content-type'] = 'application/json'
-    return { method, headers, body: payload }
-  })
+  const response = await call(
+    url.toString(),
+    () => {
+      const headers: Record<string, string> = {
+        'x-amz-access-token': token,
+        'x-amz-date': amzDate(),
+        'user-agent': USER_AGENT,
+        accept: 'application/json',
+      }
+      if (payload !== undefined) headers['content-type'] = 'application/json'
+      return { method, headers, body: payload }
+    },
+    acquire,
+  )
 
   const text = await response.text()
   if (!response.ok) {
