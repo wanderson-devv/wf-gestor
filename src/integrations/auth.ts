@@ -118,7 +118,14 @@ export function useAuth() {
     if (status !== 200) throw new Error(messageOf('Não foi possível redefinir a senha.', data))
   }, [])
 
-  return { ...state, refresh, login, logout, forgot, reset }
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    const { status, data } = await postJson('/auth/register', { name, email, password })
+    if (status === 0) throw new Error('Proxy indisponível.')
+    if (status !== 200) throw new Error(messageOf('Não foi possível criar conta.', data))
+    return typeof data.message === 'string' ? data.message : ''
+  }, [])
+
+  return { ...state, refresh, login, logout, forgot, reset, register }
 }
 
 export type AuthApi = ReturnType<typeof useAuth>

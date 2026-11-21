@@ -337,6 +337,40 @@ app.post<{ Body: { email?: string; password?: string } }>('/auth/login', async (
   return { ok: true, user: { email: user.email, name: user.name } }
 })
 
+/* Cadastro de nova conta (Fase 3): valida campos, impede e-mail duplicado
+   e cria o usuário com scrypt (mesmo mecanismo do login). A conta já nasce
+   utilizável — o requisito é permitir login imediato com as novas credenciais. */
+app.post<{ Body: { name?: string; email?: string; password?: string } }>(
+  '/auth/register',
+  async (request, reply) => {
+    const name = String(request.body?.name ?? '').trim()
+    const email = String(request.body?.email ?? '').trim().toLowerCase()
+    const password = String(request.body?.password ?? '')
+
+    if (!name || !email || !password) {
+      return reply.code(400).send({ ok: false, error: 'Preencha todos os campos.' })
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return reply.code(400).send({ ok: false, error: 'Informe um e-mail válido.' })
+    }
+    if (password.length < MIN_PASSWORD) {
+      return reply
+        .code(400)
+        .send({ ok: false, error: `A senha precisa ter ao menos ${MIN_PASSWORD} caracteres.` })
+    }
+
+    const existing = await findUserByEmail(email)
+    if (existing) {
+      return reply.code(409).send({ ok: false, error: 'Este e-mail já está cadastrado.' })
+    }
+
+    const { salt, hash } = hashPassword(password)
+    await createUser(email, name, salt, hash)
+
+    return { ok: true, message: 'Conta criada com sucesso! Já pode fazer login.' }
+  },
+)
+
 app.post('/auth/logout', async (request, reply) => {
   reply.header('set-cookie', clearSessionCookie(request))
   return { ok: true }
@@ -405,15 +439,19 @@ app.setNotFoundHandler(async (request, reply) => {
     .send(readFileSync(resolve(distDir, 'index.html'), 'utf8'))
 })
 
-/* Conta administradora das envs WF_ADMIN_*: criada uma única vez (no banco),
-   só quando ainda não existe ninguém. Depois disso a senha muda pelo fluxo
-   "esqueci a senha". */
+/* Conta administradora das envs WF_ADMIN_*: criada no boot.
+   - Se já existir ninguém, cria automaticamente.
+   - Se a env FORCE_ADMIN_USER=1, cria mesmo existindo registro (útil para testes).
+   - Depois disso a senha muda pelo fluxo "esqueci a senha". */
 async function ensureAdminUser() {
   if (!config.adminEmail || !config.adminPassword) return
-  if ((await countUsers()) > 0) return
+  const already = await countUsers()
+  if (already > 0 && !(process.env.FORCE_ADMIN_USER === '1')) return
   const { salt, hash } = hashPassword(config.adminPassword)
   await createUser(config.adminEmail, '', salt, hash)
-  console.log(`[auth] Conta administradora criada: ${config.adminEmail}`)
+  console.log(`[auth] Conta administradora criada: ${config.adminEmail}${
+    already > 0 ? ' (sobrescrita/forçada)' : ' (novo cadastro)'
+  }`)
 }
 
 try {
