@@ -42,10 +42,11 @@ export const config = {
   resendFrom: process.env.RESEND_FROM ?? 'WF Gestor <onboarding@resend.dev>',
   appBaseUrl: (process.env.APP_BASE_URL ?? 'https://wanderson-devv.github.io/wf-gestor/').replace(/\/+$/, ''),
   /* Origens que podem chamar a API com cookie (CORS com credenciais não
-     aceita "*"): o site no GitHub Pages e o Vite em dev local. */
+     aceita "*"): o site no GitHub Pages, o Vite em dev local e o app
+     Android (Capacitor serve o bundle em https://localhost). */
   corsOrigin:
     process.env.CORS_ORIGIN ??
-    'https://wanderson-devv.github.io,http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173',
+    'https://wanderson-devv.github.io,http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173,https://localhost,http://localhost,capacitor://localhost',
 }
 
 export const isConfigured = () =>

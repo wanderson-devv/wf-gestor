@@ -1,0 +1,6 @@
+{
+  "appId": "com.wfgestor.app",
+  "appName": "WF Gestor",
+  "webDir": "dist",
+  "plugins": {}
+}

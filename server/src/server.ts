@@ -47,6 +47,24 @@ const hasFront = existsSync(resolve(distDir, 'index.html'))
 
 const app = Fastify({ logger: true })
 
+/* POST sem corpo (ex.: /auth/logout) com Content-Type application/json
+   quebrava com FST_ERR_CTP_EMPTY_JSON_BODY antes de chegar na rota — o
+   cookie de sessao nunca era limpo. Body vazio vira {}. */
+app.addContentTypeParser(
+  'application/json',
+  { parseAs: 'string' },
+  (_request, body, done) => {
+    const raw = typeof body === 'string' ? body.trim() : ''
+    if (!raw) return done(null, {})
+    try {
+      done(null, JSON.parse(raw))
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error('JSON inválido')
+      done(Object.assign(error, { statusCode: 400 }), undefined)
+    }
+  },
+)
+
 app.addHook('onRequest', async (request, reply) => {
   if (request.headers['access-control-request-private-network']) {
     reply.header('access-control-allow-private-network', 'true')

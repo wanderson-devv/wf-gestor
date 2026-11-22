@@ -101,7 +101,7 @@ export function useAuth() {
   )
 
   const logout = useCallback(async () => {
-    await postJson('/auth/logout')
+    await postJson('/auth/logout', {})
     setState({ status: 'anon' })
   }, [])
 
