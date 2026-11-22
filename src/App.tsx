@@ -38,6 +38,7 @@ import {
   type LiveSale,
   type LiveStatus,
 } from './integrations'
+import { startBackgroundSync } from './integrations/background'
 
 type View =
   | 'Visão geral'
@@ -144,7 +145,9 @@ function AppShell({ auth }: { auth: AuthApi }) {
   }, [panelOpen])
 
   useEffect(() => {
-    void loadAppDb().finally(() => startAutoSync())
+    void loadAppDb()
+      .finally(() => startAutoSync())
+      .finally(() => void startBackgroundSync())
     prefetchCoreData()
   }, [])
 

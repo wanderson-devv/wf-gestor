@@ -76,8 +76,20 @@ app.addHook('onRequest', async (request, reply) => {
 // "proxy indisponivel".
 // credentials: o front (GitHub Pages) manda o cookie de sessão, e CORS com
 // credenciais proibe ACAO "*": por isso config.corsOrigin lista as origens.
+// As origens do app Capacitor (APK Android) entram sempre, mesmo quando
+// CORS_ORIGIN vem definida no ambiente — sem isso o app nativo e barrado.
+const NATIVE_ORIGINS = ['https://localhost', 'http://localhost', 'capacitor://localhost']
+const allowedOrigins =
+  config.corsOrigin === '*'
+    ? true
+    : [
+        ...new Set([
+          ...config.corsOrigin.split(',').map((value) => value.trim()).filter(Boolean),
+          ...NATIVE_ORIGINS,
+        ]),
+      ]
 await app.register(cors, {
-  origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(',').map((value) => value.trim()),
+  origin: allowedOrigins,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
 })

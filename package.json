@@ -14,6 +14,7 @@
   "dependencies": {
     "@capacitor/android": "^8.6.2",
     "@capacitor/core": "^8.6.2",
+    "@transistorsoft/capacitor-background-fetch": "^8.2.0",
     "@vitejs/plugin-react": "^6.1.0",
     "lucide-react": "^1.34.0",
     "react": "^19.2.8",
